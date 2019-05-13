@@ -1,0 +1,22 @@
+{
+  "name": "dns-toy",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "ava"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "12.0.0",
+    "ava": "1.4.1",
+    "prettier": "1.17.0"
+  },
+  "ava": {
+    "files": [
+      "app/**/*.spec.js"
+    ]
+  }
+}
