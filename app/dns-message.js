@@ -337,8 +337,7 @@ exports.parseDnsMessage = function parseDnsMessage(
 
   const [questions, remainderAfterQuestions] = exports.parseDnsMessageQuestions(
     remainderAfterHeader,
-    messageBuffer,
-    header
+    messageBuffer
   );
 
   return {
@@ -384,12 +383,18 @@ exports.parseDnsMessageHeader = function parseDnsMessageHeader(
  * @returns {[Array<DnsQuestion>, Buffer]}
  */
 exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
-  /** @type {Buffer} */
+  /**
+   * The data remaining to process.
+   * @type {Buffer}
+   */
   remainderAfterHeader,
-  /** @type {Buffer} */
-  messageBuffer,
-  /** @type {DnsHeader} */
-  header
+  /**
+   * The whole data buffer, for accessing
+   * the question-entry-count and for
+   * any name-pointers.
+   * @type {Buffer}
+   */
+  messageBuffer
 ) {
   const expectedQuestionCount = messageBuffer.readUInt16BE(4);
   const questions = [];
@@ -404,6 +409,7 @@ exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
     };
 
     while (remainderAfterQuestions.readUInt8(0) !== 0x00) {
+      // Probably want to extract this snippet...
       const namePartLength = remainderAfterQuestions.readUInt8(0);
       const namePart = remainderAfterQuestions
         .slice(1, namePartLength + 1)
