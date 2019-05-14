@@ -397,6 +397,7 @@ exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
   messageBuffer
 ) {
   const expectedQuestionCount = messageBuffer.readUInt16BE(4);
+  /** @type {Array<DnsQuestion>} */
   const questions = [];
   let remainderAfterQuestions = remainderAfterHeader;
 
@@ -408,20 +409,12 @@ exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
       class: exports.DnsResourceRecordClass.IN,
     };
 
-    while (remainderAfterQuestions.readUInt8(0) !== 0x00) {
-      // Probably want to extract this snippet...
-      const namePartLength = remainderAfterQuestions.readUInt8(0);
-      const namePart = remainderAfterQuestions
-        .slice(1, namePartLength + 1)
-        .toString("utf8");
-      questionEntry.name.push(namePart);
-      remainderAfterQuestions = remainderAfterQuestions.slice(
-        namePartLength + 1
-      );
-    }
-
-    // Skip the empty/terminal part.
-    remainderAfterQuestions = remainderAfterQuestions.slice(1);
+    const nameResults = exports.readName(
+      remainderAfterQuestions,
+      messageBuffer
+    );
+    questionEntry.name = nameResults[0];
+    remainderAfterQuestions = nameResults[1];
 
     questionEntry.type = remainderAfterQuestions.readUInt16BE(0);
     questionEntry.class = remainderAfterQuestions.readUInt16BE(2);
@@ -431,4 +424,184 @@ exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
   }
 
   return [questions, remainderAfterQuestions];
+};
+
+/**
+ * Parses a Resource Records section, which covers all of
+ * Answers, Name Servers, and Additional Records.
+ *
+ * Where defined, it performs additional processing per type.
+ * @returns {[Array<DnsResourceRecord>, Buffer]}
+ */
+exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords(
+  /**
+   * The data remaining to process.
+   * @type {Buffer}
+   */
+  remainderAfterPreviousSection,
+  /**
+   * The whole data buffer, for
+   * any name-pointers.
+   * @type {Buffer}
+   */
+  messageBuffer,
+  /**
+   * Expected record count for this section.
+   * @type {number}
+   */
+  expectedMessageCount
+) {
+  /** @type {Array<DnsResourceRecord>} */
+  const resourceRecords = [];
+  let remainderAfterSection = remainderAfterPreviousSection;
+
+  // while (resourceRecords.length < expectedMessageCount) {
+  //   /** @type {DnsResourceRecord} */
+  //   const resourceRecord = {
+  //     name: [],
+  //     type: exports.DnsResourceRecordType.A,
+  //     class: exports.DnsResourceRecordClass.IN,
+  //     ttl: 0,
+  //     dataRaw: null,
+  //   }
+
+  //   if ((remainderAfterQuestions.readUInt8(0) & 0xc0) === 0xc0) {
+  //     const offset = remainderAfterQuestions.readUInt16BE(0) & ~0xc000;
+  //     const
+  //   }
+
+  //   // while (remainderAfterQuestions.readUInt8(0) !== 0x00) {
+  //   //   // Probably want to extract this snippet...
+  //   //   const namePartLength = remainderAfterQuestions.readUInt8(0);
+  //   //   const namePart = remainderAfterQuestions
+  //   //     .slice(1, namePartLength + 1)
+  //   //     .toString("utf8");
+  //   //   questionEntry.name.push(namePart);
+  //   //   remainderAfterQuestions = remainderAfterQuestions.slice(
+  //   //     namePartLength + 1
+  //   //   );
+  //   // }
+  // }
+};
+
+/**
+ * Parses a Domain Name at a given point,
+ * handling name-pointers correctly.
+ * @returns {[Array<string>, Buffer]} the name-parts array and remainder after actually-read portion.
+ */
+exports.readName = function readName(
+  /** @type {Buffer} */
+  messageRemainder,
+  /** @type {Buffer} */
+  message
+) {
+  const leadOctet = messageRemainder.readUInt8(0);
+
+  if ((leadOctet & 0xc0) === 0xc0) {
+    return exports.readNamePointer(messageRemainder, message);
+  } else if ((leadOctet & 0xc0) === 0x80 || (leadOctet & 0xc0) === 0x40) {
+    throw new Error(
+      `Unsupported name type: ${(leadOctet & 0xc0).toString(16)}`
+    );
+  } else {
+    return exports.readNameInline(messageRemainder, message);
+  }
+};
+
+/**
+ * Parses an inline Domain Name at a given point,
+ * @returns {[Array<string>, Buffer]} the name-parts array and remainder after actually-read portion.
+ */
+exports.readNamePointer = function readNamePointer(
+  /** @type {Buffer} */
+  messageRemainder,
+  /** @type {Buffer} */
+  message
+) {
+  const leadOctet = messageRemainder.readUInt8(0);
+  const type = leadOctet & 0xc0;
+  const offset = messageRemainder.readUInt16BE(0) & ~0xc000;
+
+  if (type === 0xc0) {
+    const remainderAfterPointer = messageRemainder.slice(2);
+    const [name] = exports.readName(message.slice(offset), message);
+    return [name, remainderAfterPointer];
+  } else {
+    throw new Error(`Unsupported name type: ${type.toString(16)}`);
+  }
+};
+
+/**
+ * Parses an inline Domain Name at a given point,
+ * @returns {[Array<string>, Buffer]} the name-parts array and remainder after actually-read portion.
+ */
+exports.readNameInline = function readNameInline(
+  /** @type {Buffer} */
+  messageRemainder,
+  /** @type {Buffer} */
+  message
+) {
+  /** @type {Array<string>} */
+  const name = [];
+  let remainderAfterName = messageRemainder;
+
+  while (
+    remainderAfterName.readUInt8(0) !== 0x00 &&
+    (remainderAfterName.readUInt8(0) & 0xc0) === 0
+  ) {
+    // Probably want to extract this snippet...
+    const namePartLength = remainderAfterName.readUInt8(0);
+    const namePart = remainderAfterName
+      .slice(1, namePartLength + 1)
+      .toString("utf8");
+    name.push(namePart);
+    remainderAfterName = remainderAfterName.slice(namePartLength + 1);
+  }
+
+  if ((remainderAfterName.readUInt8(0) & 0xc0) !== 0) {
+    const [nameFromPointer, remainderAfterPointer] = exports.readName(
+      remainderAfterName,
+      message
+    );
+    return [name.concat(nameFromPointer), remainderAfterPointer];
+  } else {
+    // Skip the terminal part.
+    remainderAfterName = remainderAfterName.slice(1);
+    return [name, remainderAfterName];
+  }
+};
+
+/**
+ * Convenience function that takes a partially specified
+ * DnsMessage object and returns a fully specified one
+ * using default values for any unspecified fields.
+ *
+ * @returns {DnsMessage}
+ */
+exports.createDnsMessage = function createDnsMessage(
+  /** @type {CreateDnsRequestOptions} */
+  options
+) {
+  /** @type {Partial<DnsHeader>} */
+  const header = options.header || {};
+
+  return {
+    header: {
+      id:
+        header.id >= 0
+          ? Math.floor(header.id)
+          : Math.floor(Math.random() * 0xffff),
+      isResponse: header.isResponse === true,
+      opCode: header.opCode || exports.DnsOpCode.QUERY,
+      isAuthoritativeAnswer: header.isAuthoritativeAnswer === true,
+      isTruncated: header.isTruncated === true,
+      isRecursionDesired: header.isRecursionDesired === true,
+      isRecursionAvailable: header.isRecursionAvailable === true,
+      responseCode: header.responseCode || exports.DnsResponseCode.NO_ERROR,
+    },
+    questions: options.questions || [],
+    answers: options.answers || [],
+    nameServers: options.nameServers || [],
+    additionalRecords: options.additionalRecords || [],
+  };
 };

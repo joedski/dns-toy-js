@@ -6,6 +6,14 @@ interface DnsMessage {
   additionalRecords: Array<DnsResourceRecord>;
 }
 
+interface CreateDnsRequestOptions {
+  header?: Partial<DnsHeader>;
+  questions?: Array<DnsQuestion>;
+  answers?: Array<DnsResourceRecord>;
+  nameServers?: Array<DnsResourceRecord>;
+  additionalRecords?: Array<DnsResourceRecord>;
+}
+
 interface DnsHeader {
   /**
    * Uint16 program-assigned ID for this request.
