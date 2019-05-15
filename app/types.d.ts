@@ -197,6 +197,12 @@ enum DnsResourceRecordType {
    * text strings
    */
   TXT = 16,
+  // TODO: Get All Updated Types!
+  // RFC1035 is pretty old.
+  /**
+   * An IPV6 address.
+   */
+  AAAA = 28,
   /**
    * A request for a transfer of an entire zone
    */

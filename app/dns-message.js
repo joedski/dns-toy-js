@@ -141,6 +141,13 @@ exports.DnsResourceRecordType = {
    * @type {DnsResourceRecordType.TXT}
    */
   TXT: 16,
+  // TODO: Get All Updated Types!
+  // RFC1035 is pretty old.
+  /**
+   * An IPV6 address.
+   * @type {DnsResourceRecordType.AAAA}
+   */
+  AAAA: 28,
   /**
    * A request for a transfer of an entire zone
    * @type {DnsResourceRecordType.AXFR}
@@ -494,13 +501,16 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
     remainderAfterSection = remainderAfterSection.slice(recordDataLength);
 
     resourceRecords.push(
-      exports.createResourceRecordFromParseResults({
-        name: recordName,
-        type: recordType,
-        class: recordClass,
-        ttl: recordTTL,
-        dataRaw: recordData,
-      })
+      exports.createResourceRecordFromParseResults(
+        {
+          name: recordName,
+          type: recordType,
+          class: recordClass,
+          ttl: recordTTL,
+          dataRaw: recordData,
+        },
+        messageBuffer
+      )
     );
   }
 
@@ -514,7 +524,9 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
  */
 exports.createResourceRecordFromParseResults = function createResourceRecordFromParseResults(
   /** @type {{ name: Array<string>; type: DnsResourceRecordType; class: DnsResourceRecordClass; ttl: number; dataRaw: Buffer }} */
-  recordProps
+  recordProps,
+  /** @type {Buffer} */
+  message
 ) {
   switch (recordProps.type) {
     case exports.DnsResourceRecordType.A: {
@@ -533,11 +545,16 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
       };
     }
 
-    // case exports.DnsResourceRecordType.NS:
-    // case exports.DnsResourceRecordType.PTR:
-    // case exports.DnsResourceRecordType.CNAME: {
-    //   const domainName
-    // }
+    case exports.DnsResourceRecordType.NS:
+    case exports.DnsResourceRecordType.PTR:
+    case exports.DnsResourceRecordType.CNAME: {
+      const [domainName] = exports.readName(recordProps.dataRaw, message);
+
+      return {
+        ...recordProps,
+        domainName,
+      };
+    }
 
     default: {
       return recordProps;
