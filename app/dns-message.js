@@ -340,12 +340,36 @@ exports.parseDnsMessage = function parseDnsMessage(
     messageBuffer
   );
 
+  const [
+    answers,
+    remainderAfterAnswers,
+  ] = exports.parseDnsMessageResourceRecords(
+    remainderAfterQuestions,
+    messageBuffer,
+    messageBuffer.readUInt16BE(6)
+  );
+
+  const [
+    nameServers,
+    remainderAfterNameServers,
+  ] = exports.parseDnsMessageResourceRecords(
+    remainderAfterAnswers,
+    messageBuffer,
+    messageBuffer.readUInt16BE(8)
+  );
+
+  const [additionalRecords] = exports.parseDnsMessageResourceRecords(
+    remainderAfterNameServers,
+    messageBuffer,
+    messageBuffer.readUInt16BE(10)
+  );
+
   return {
     header,
     questions,
-    answers: [],
-    nameServers: [],
-    additionalRecords: [],
+    answers,
+    nameServers,
+    additionalRecords,
   };
 };
 
@@ -449,39 +473,76 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
    * Expected record count for this section.
    * @type {number}
    */
-  expectedMessageCount
+  expectedRecordCount
 ) {
   /** @type {Array<DnsResourceRecord>} */
   const resourceRecords = [];
   let remainderAfterSection = remainderAfterPreviousSection;
 
-  // while (resourceRecords.length < expectedMessageCount) {
-  //   /** @type {DnsResourceRecord} */
-  //   const resourceRecord = {
-  //     name: [],
-  //     type: exports.DnsResourceRecordType.A,
-  //     class: exports.DnsResourceRecordClass.IN,
-  //     ttl: 0,
-  //     dataRaw: null,
-  //   }
+  while (resourceRecords.length < expectedRecordCount) {
+    const nameResults = exports.readName(remainderAfterSection, messageBuffer);
+    const recordName = nameResults[0];
+    remainderAfterSection = nameResults[1];
 
-  //   if ((remainderAfterQuestions.readUInt8(0) & 0xc0) === 0xc0) {
-  //     const offset = remainderAfterQuestions.readUInt16BE(0) & ~0xc000;
-  //     const
-  //   }
+    const recordType = remainderAfterSection.readUInt16BE(0);
+    const recordClass = remainderAfterSection.readUInt16BE(2);
+    const recordTTL = remainderAfterSection.readUInt32BE(4);
+    const recordDataLength = remainderAfterSection.readUInt16BE(8);
+    remainderAfterSection = remainderAfterSection.slice(10);
 
-  //   // while (remainderAfterQuestions.readUInt8(0) !== 0x00) {
-  //   //   // Probably want to extract this snippet...
-  //   //   const namePartLength = remainderAfterQuestions.readUInt8(0);
-  //   //   const namePart = remainderAfterQuestions
-  //   //     .slice(1, namePartLength + 1)
-  //   //     .toString("utf8");
-  //   //   questionEntry.name.push(namePart);
-  //   //   remainderAfterQuestions = remainderAfterQuestions.slice(
-  //   //     namePartLength + 1
-  //   //   );
-  //   // }
-  // }
+    const recordData = remainderAfterSection.slice(0, recordDataLength);
+    remainderAfterSection = remainderAfterSection.slice(recordDataLength);
+
+    resourceRecords.push(
+      exports.createResourceRecordFromParseResults({
+        name: recordName,
+        type: recordType,
+        class: recordClass,
+        ttl: recordTTL,
+        dataRaw: recordData,
+      })
+    );
+  }
+
+  return [resourceRecords, remainderAfterSection];
+};
+
+/**
+ * Creates a Resource Record from the raw parse results, adding
+ * additional properties for a few Record Types I felt like supporting.
+ * @returns {DnsResourceRecord}
+ */
+exports.createResourceRecordFromParseResults = function createResourceRecordFromParseResults(
+  /** @type {{ name: Array<string>; type: DnsResourceRecordType; class: DnsResourceRecordClass; ttl: number; dataRaw: Buffer }} */
+  recordProps
+) {
+  switch (recordProps.type) {
+    case exports.DnsResourceRecordType.A: {
+      const address = [
+        recordProps.dataRaw.readUInt8(0),
+        recordProps.dataRaw.readUInt8(1),
+        recordProps.dataRaw.readUInt8(2),
+        recordProps.dataRaw.readUInt8(3),
+      ]
+        .map(n => String(n))
+        .join(".");
+
+      return {
+        ...recordProps,
+        address,
+      };
+    }
+
+    // case exports.DnsResourceRecordType.NS:
+    // case exports.DnsResourceRecordType.PTR:
+    // case exports.DnsResourceRecordType.CNAME: {
+    //   const domainName
+    // }
+
+    default: {
+      return recordProps;
+    }
+  }
 };
 
 /**

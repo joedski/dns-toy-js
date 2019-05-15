@@ -254,6 +254,8 @@ enum DnsResourceRecordClass {
 /**
  * A Resource Record with Type, Class, and additional fields
  * for the Record Data. (RDATA) (RFC1035#4.1.3)
+ *
+ * TODO: Make this type not annoying to work with.
  */
 type DnsResourceRecord = {
   name: Array<string>;
@@ -273,16 +275,16 @@ type DnsResourceRecord = {
 /**
  * A record with just a conanical name.
  */
-interface DnsCnameResourceRecordData {
+type DnsCnameResourceRecordData = {
   type: DnsResourceRecordType.CNAME;
 
   /**
    * The conanical name.
    */
   domainName: Array<string>;
-}
+};
 
-interface DnsNsResourceRecordData {
+type DnsNsResourceRecordData = {
   type: DnsResourceRecordType.NS;
 
   /**
@@ -290,9 +292,9 @@ interface DnsNsResourceRecordData {
    * for the specified class and domain.
    */
   domainName: Array<string>;
-}
+};
 
-interface DnsPtrResourceRecordData {
+type DnsPtrResourceRecordData = {
   type: DnsResourceRecordType.PTR;
 
   /**
@@ -300,13 +302,13 @@ interface DnsPtrResourceRecordData {
    * in the domain name space.
    */
   domainName: Array<string>;
-}
+};
 
-interface DnsAResourceRecordData {
+type DnsAResourceRecordData = {
   type: DnsResourceRecordType.A;
 
   /**
    * Address in the Record.
    */
   address: string;
-}
+};
