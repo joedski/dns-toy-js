@@ -2,15 +2,51 @@ const dgram = require("dgram");
 const {
   createDnsMessage,
   serializeDnsMessage,
+  parseDnsMessage,
   DnsResourceRecordType,
   DnsResourceRecordClass,
 } = require("./dns-message");
 
-exports.doMdnsAddressRequest = function doMdnsAddressRequest(
-  /** @type {(error: Error | null) => void} */
-  done
+function stringifyWithLoggableBuffers(key, value) {
+  if (Buffer.isBuffer(value)) {
+    return `Buffer(${value.length}):${value.toString("hex")}`;
+  }
+
+  // the result of buf.toJSON()
+  if (
+    value &&
+    typeof value === "object" &&
+    value.type === "Buffer" &&
+    Array.isArray(value.data)
+  ) {
+    return `Buffer(${value.data.length}):${Buffer.of(...value.data).toString(
+      "hex"
+    )}`;
+  }
+
+  if (
+    Array.isArray(value) &&
+    value.every(v => typeof v === "string" || typeof v === "number")
+  ) {
+    return `[${value.join(", ")}]`;
+  }
+
+  return value;
+}
+
+exports.doMdnsRequest = function doMdnsRequest(
+  messageProps,
+  {
+    timeout = 5000,
+    onDone = error => {
+      if (error) {
+        console.error("Done with error:", error);
+      } else {
+        console.log("Done!");
+      }
+    },
+  } = {}
 ) {
-  // all ipv4 here.
   const socket = dgram.createSocket("udp4");
   /** @type {NodeJS.Timeout | null} */
   let timeoutId = null;
@@ -19,7 +55,7 @@ exports.doMdnsAddressRequest = function doMdnsAddressRequest(
     timeoutId = null;
     socket.close();
     console.log("Timed out!");
-    done(null);
+    onDone(null);
   }
 
   socket.on("error", error => {
@@ -29,13 +65,15 @@ exports.doMdnsAddressRequest = function doMdnsAddressRequest(
       clearTimeout(timeoutId);
       timeoutId = null;
     }
-    done(error);
+    onDone(error);
   });
 
   socket.on("message", (msg, rinfo) => {
     console.log(
-      `got: ${msg.toString("hex")} from ${rinfo.address}:${rinfo.port}`
+      `\ngot from ${rinfo.address}:${rinfo.port}: ${msg.toString("hex")}`
     );
+    const res = parseDnsMessage(msg);
+    console.log(JSON.stringify(res, stringifyWithLoggableBuffers, 2));
   });
 
   socket.on("listening", () => {
@@ -55,16 +93,7 @@ exports.doMdnsAddressRequest = function doMdnsAddressRequest(
 
     socket.addMembership(mdnsBroadcastAddress);
 
-    const message = createDnsMessage({
-      questions: [
-        {
-          name: ["datamunch", "local"],
-          type: DnsResourceRecordType.A,
-          class: DnsResourceRecordClass.IN,
-        },
-      ],
-    });
-
+    const message = createDnsMessage(messageProps);
     const messageBuffer = serializeDnsMessage(message);
 
     console.log(`Sending message: ${messageBuffer.toString("hex")}`);
@@ -77,12 +106,45 @@ exports.doMdnsAddressRequest = function doMdnsAddressRequest(
         if (error) {
           console.error("Error sending!", error);
           socket.close();
-          done(error);
+          onDone(error);
         } else {
           console.log("Waiting...!");
-          timeoutId = setTimeout(handleTimeout, 5000);
+          timeoutId = setTimeout(handleTimeout, timeout);
         }
       }
     );
   });
 };
+
+exports.doMdnsAddressRequest = () =>
+  exports.doMdnsRequest({
+    questions: [
+      {
+        name: ["datamunch", "local"],
+        type: DnsResourceRecordType.A,
+        class: DnsResourceRecordClass.IN,
+      },
+    ],
+  });
+
+exports.doMdnsPtrBrowseRequest = () =>
+  exports.doMdnsRequest({
+    questions: [
+      {
+        name: ["_services", "_dns-sd", "_udp", "local"],
+        type: DnsResourceRecordType.PTR,
+        class: DnsResourceRecordClass.IN,
+      },
+    ],
+  });
+
+exports.doMdnsPtrPrinterRequest = () =>
+  exports.doMdnsRequest({
+    questions: [
+      {
+        name: ["_printer", "_tcp", "local"],
+        type: DnsResourceRecordType.PTR,
+        class: DnsResourceRecordClass.IN,
+      },
+    ],
+  });
