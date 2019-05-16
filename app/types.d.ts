@@ -130,6 +130,9 @@ interface DnsQuestion {
  * Defines the type of a record, whether it's what type
  * of record or querying or the type of the record returned.
  * (RFC1035#3.2.3)
+ *
+ * Naturally, Wikipedia has a full (probably) up to date list...
+ * https://en.wikipedia.org/wiki/List_of_DNS_record_types
  */
 enum DnsResourceRecordType {
   /**
@@ -204,6 +207,13 @@ enum DnsResourceRecordType {
    */
   AAAA = 28,
   /**
+   * Generalized service location record, used for newer protocols
+   * instead of creating protocol-specific records such as MX.
+   * https://tools.ietf.org/html/rfc2782
+   * https://en.wikipedia.org/wiki/SRV_record
+   */
+  SRV = 33,
+  /**
    * A request for a transfer of an entire zone
    */
   AXFR = 252,
@@ -265,18 +275,13 @@ enum DnsResourceRecordClass {
  */
 type DnsResourceRecord = {
   name: Array<string>;
-  type: DnsResourceRecordType;
   class: DnsResourceRecordClass;
   ttl: number;
   /**
    * The raw data received for this record.
    */
   dataRaw: Buffer;
-} & (
-  | DnsCnameResourceRecordData
-  | DnsNsResourceRecordData
-  | DnsPtrResourceRecordData
-  | DnsAResourceRecordData);
+} & (DnsResourceRecordWithSupportedData | DnsResourceRecordWithUnsupportedData);
 
 /**
  * A record with just a conanical name.
@@ -314,7 +319,65 @@ type DnsAResourceRecordData = {
   type: DnsResourceRecordType.A;
 
   /**
-   * Address in the Record.
+   * IPv4 Address in the Record.
    */
   address: string;
+};
+
+type DnsAaaaResourceRecordData = {
+  type: DnsResourceRecordType.AAAA;
+
+  /**
+   * IPv6 Address in the Record.
+   */
+  address: string;
+};
+
+type DnsTxtResourceRecordData = {
+  type: DnsResourceRecordType.TXT;
+
+  /**
+   * Text strings in the Record.
+   * No semantics are assigned by any RFCs.
+   */
+  texts: Array<string>;
+};
+
+type DnsSrvResourceRecordData = {
+  type: DnsResourceRecordType.SRV;
+
+  priority: number;
+  weight: number;
+  /**
+   * Port on which the service is offered
+   * at the target.
+   */
+  port: number;
+  /**
+   * Domain name of the target service.
+   */
+  target: Array<string>;
+};
+
+/**
+ * Resource Record Types with convenience processing.
+ */
+type DnsResourceRecordWithSupportedData =
+  | DnsCnameResourceRecordData
+  | DnsNsResourceRecordData
+  | DnsPtrResourceRecordData
+  | DnsAaaaResourceRecordData
+  | DnsTxtResourceRecordData
+  | DnsAResourceRecordData;
+
+/**
+ * With unsupported rdata, you just get the raw buffer.
+ * No additional convenience processing occurs.
+ */
+type DnsResourceRecordWithUnsupportedData = {
+  type: DnsResourceRecordType extends infer T
+    ? T extends DnsResourceRecordWithSupportedData["type"]
+      ? never
+      : T
+    : never;
 };

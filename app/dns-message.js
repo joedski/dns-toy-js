@@ -1,6 +1,8 @@
 // NOTE: All the @type annotations in the enums are to get
 // exact types.  maybe I'll think of a better way to do it later.
 
+const { formatIpv4, formatIpv6 } = require("./util/format");
+
 /**
  * Op-code specifying the kind of query being made.
  * Values 3-15 are reserved for future use. (RFC1035#4.1.1)
@@ -149,6 +151,14 @@ exports.DnsResourceRecordType = {
    */
   AAAA: 28,
   /**
+   * Generalized service location record, used for newer protocols
+   * instead of creating protocol-specific records such as MX.
+   * https://tools.ietf.org/html/rfc2782
+   * https://en.wikipedia.org/wiki/SRV_record
+   * @type {DnsResourceRecordType.SRV}
+   */
+  SRV: 33,
+  /**
    * A request for a transfer of an entire zone
    * @type {DnsResourceRecordType.AXFR}
    */
@@ -284,8 +294,12 @@ exports.serializeDnsQuestionEntry = function serializeDnsQuestionEntry(
   questionEntry
 ) {
   // TODO: Refactor.  This code is really slapdash,
-  // - Need to limit name parts to 63 chars.
+  // - Need to limit name parts to 63 octets.
+  // - Need to limit total domain name length to 256 octets.
   // - Need to make sure I'm actually handling non-ASCII correctly.
+  //    - Actually, after reading, that should be a separate step before this,
+  //      Something something ToASCII, Punycode, blah.
+  //      But not something I handle in this.
   // - Not yet a concern, but creating all those buffers is pretty non-optimal.
   //    - The length can be precalculated easily, and the data written without all these
   //      silly intermediate buffers.
@@ -530,18 +544,20 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
 ) {
   switch (recordProps.type) {
     case exports.DnsResourceRecordType.A: {
-      const address = [
-        recordProps.dataRaw.readUInt8(0),
-        recordProps.dataRaw.readUInt8(1),
-        recordProps.dataRaw.readUInt8(2),
-        recordProps.dataRaw.readUInt8(3),
-      ]
-        .map(n => String(n))
-        .join(".");
+      const address = formatIpv4(recordProps.dataRaw);
 
       return {
         ...recordProps,
         address,
+      };
+    }
+
+    case exports.DnsResourceRecordType.AAAA: {
+      const address = formatIpv6(recordProps.dataRaw);
+
+      return {
+        ...recordProps,
+        address: addressCompressed,
       };
     }
 
@@ -553,6 +569,34 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
       return {
         ...recordProps,
         domainName,
+      };
+    }
+
+    case exports.DnsResourceRecordType.TXT: {
+      const [texts] = exports.readAllCharacterStrings(recordProps.dataRaw);
+
+      return {
+        ...recordProps,
+        texts,
+      };
+    }
+
+    case exports.DnsResourceRecordType.SRV: {
+      // I think this is correct, but I'm not exactly sure.
+      // The description in RFC 2782 is doesn't really give
+      // a bitfield breakdown.
+      // https://tools.ietf.org/html/rfc2782
+      const priority = recordProps.dataRaw.readUInt16BE(0);
+      const weight = recordProps.dataRaw.readUInt16BE(2);
+      const port = recordProps.dataRaw.readUInt16BE(4);
+      const [target] = exports.readName(recordProps.dataRaw.slice(6), message);
+
+      return {
+        ...recordProps,
+        priority,
+        weight,
+        port,
+        target,
       };
     }
 
@@ -647,6 +691,59 @@ exports.readNameInline = function readNameInline(
     remainderAfterName = remainderAfterName.slice(1);
     return [name, remainderAfterName];
   }
+};
+
+/**
+ * Reads a single Character String.
+ *
+ * A Character String is defined by RFC 1035 Section 3.3. as
+ * - An octet which is the length field
+ * - A number of octets equal to the value of that length field
+ *
+ * A Character String may thus be up to 256 octets long,
+ * 1 for the 0xff length field, and 255 for the character octets.
+ *
+ * @returns {[string, Buffer]}
+ */
+exports.readCharacterString = function readCharacterString(
+  /** @type {Buffer} */
+  messageRemainder
+) {
+  const stringLength = messageRemainder.readUInt8(0);
+  // TODO: Proper encoding?
+  const string = messageRemainder.slice(1, stringLength + 1).toString("utf8");
+
+  return [string, messageRemainder.slice(stringLength + 1)];
+};
+
+/**
+ * Reads a series of 1 or more Character Strings, terminated by
+ * a zero-length Character String.
+ *
+ * Theoretically, it should handle the degenerate case of 0 character strings,
+ * which is to say, a single Character String that consists of only a 0x00
+ * length field and thus is the Terminal.
+ *
+ * This is used by, for instance, the TXT Record Type.
+ * @returns {[Array<string>, Buffer]}
+ */
+exports.readAllCharacterStrings = function readAllCharacterStrings(
+  /** @type {Buffer} */
+  messageRemainder
+) {
+  /** @type {Array<string>} */
+  const strings = [];
+  let remainderAfterStrings = messageRemainder;
+
+  while (remainderAfterStrings.readUInt8(0) !== 0) {
+    const stringRes = exports.readCharacterString(remainderAfterStrings);
+    strings.push(stringRes[0]);
+    remainderAfterStrings = stringRes[1];
+  }
+
+  remainderAfterStrings = remainderAfterStrings.slice(1);
+
+  return [strings, remainderAfterStrings];
 };
 
 /**
