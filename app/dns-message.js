@@ -538,15 +538,18 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
  */
 exports.createResourceRecordFromParseResults = function createResourceRecordFromParseResults(
   /** @type {{ name: Array<string>; type: DnsResourceRecordType; class: DnsResourceRecordClass; ttl: number; dataRaw: Buffer }} */
-  recordProps,
+  { type: recordType, ...recordProps },
   /** @type {Buffer} */
   message
 ) {
-  switch (recordProps.type) {
+  // Explicitly breaking out recordProps.type allows tsserver to correctly
+  // set the return type.
+  switch (recordType) {
     case exports.DnsResourceRecordType.A: {
       const address = formatIpv4(recordProps.dataRaw);
 
       return {
+        type: recordType,
         ...recordProps,
         address,
       };
@@ -556,8 +559,9 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
       const address = formatIpv6(recordProps.dataRaw);
 
       return {
+        type: recordType,
         ...recordProps,
-        address: addressCompressed,
+        address,
       };
     }
 
@@ -567,6 +571,7 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
       const [domainName] = exports.readName(recordProps.dataRaw, message);
 
       return {
+        type: recordType,
         ...recordProps,
         domainName,
       };
@@ -576,6 +581,7 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
       const [texts] = exports.readAllCharacterStrings(recordProps.dataRaw);
 
       return {
+        type: recordType,
         ...recordProps,
         texts,
       };
@@ -592,6 +598,7 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
       const [target] = exports.readName(recordProps.dataRaw.slice(6), message);
 
       return {
+        type: recordType,
         ...recordProps,
         priority,
         weight,
@@ -601,7 +608,10 @@ exports.createResourceRecordFromParseResults = function createResourceRecordFrom
     }
 
     default: {
-      return recordProps;
+      return {
+        type: recordType,
+        ...recordProps,
+      };
     }
   }
 };

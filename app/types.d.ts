@@ -284,33 +284,19 @@ type DnsResourceRecord = {
 } & (DnsResourceRecordWithSupportedData | DnsResourceRecordWithUnsupportedData);
 
 /**
- * A record with just a conanical name.
+ * This is used for CNAME, NS, and PTR, because
+ * they all share the same structure.
  */
-type DnsCnameResourceRecordData = {
-  type: DnsResourceRecordType.CNAME;
+type DnsResourceRecordWithDomainNameData = {
+  type:
+    | DnsResourceRecordType.CNAME
+    | DnsResourceRecordType.NS
+    | DnsResourceRecordType.PTR;
 
   /**
-   * The conanical name.
-   */
-  domainName: Array<string>;
-};
-
-type DnsNsResourceRecordData = {
-  type: DnsResourceRecordType.NS;
-
-  /**
-   * Domain name of the authoritative name server
-   * for the specified class and domain.
-   */
-  domainName: Array<string>;
-};
-
-type DnsPtrResourceRecordData = {
-  type: DnsResourceRecordType.PTR;
-
-  /**
-   * A domain name that points to some location
-   * in the domain name space.
+   * In CNAME RRs, the conanical name.
+   * In NS RRs, the Authoritative Name Server.
+   * In PTR RRs, the domain name of the thing pointed to.
    */
   domainName: Array<string>;
 };
@@ -346,7 +332,18 @@ type DnsTxtResourceRecordData = {
 type DnsSrvResourceRecordData = {
   type: DnsResourceRecordType.SRV;
 
+  /**
+   * If multiple devices offer the same service
+   * at different priorities, the lowest one available
+   * should be selected, higher ones being fallbacks.
+   */
   priority: number;
+  /**
+   * Among entries of the same priority, how often
+   * relative to others this should receive traffic.
+   * It's static load balancing, basically.
+   * Higher means more traffic.
+   */
   weight: number;
   /**
    * Port on which the service is offered
@@ -363,11 +360,11 @@ type DnsSrvResourceRecordData = {
  * Resource Record Types with convenience processing.
  */
 type DnsResourceRecordWithSupportedData =
-  | DnsCnameResourceRecordData
-  | DnsNsResourceRecordData
-  | DnsPtrResourceRecordData
+  | DnsResourceRecordWithDomainNameData
   | DnsAaaaResourceRecordData
   | DnsTxtResourceRecordData
+  | DnsSrvResourceRecordData
+  | DnsAaaaResourceRecordData
   | DnsAResourceRecordData;
 
 /**
