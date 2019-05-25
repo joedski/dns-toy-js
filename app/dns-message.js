@@ -350,16 +350,25 @@ exports.parseDnsMessage = function parseDnsMessage(
   /**
    * @type {Buffer}
    */
-  messageBuffer
+  messageBuffer,
+  /**
+   * @type {{ includeOffsets?: boolean }}
+   */
+  options = {}
 ) {
   const [header, remainderAfterHeader] = exports.parseDnsMessageHeader(
     messageBuffer
   );
 
+  const questionsOffset = messageBuffer.length - remainderAfterHeader.length;
+
   const [questions, remainderAfterQuestions] = exports.parseDnsMessageQuestions(
     remainderAfterHeader,
-    messageBuffer
+    messageBuffer,
+    options
   );
+
+  const answersOffset = messageBuffer.length - remainderAfterQuestions.length;
 
   const [
     answers,
@@ -367,8 +376,11 @@ exports.parseDnsMessage = function parseDnsMessage(
   ] = exports.parseDnsMessageResourceRecords(
     remainderAfterQuestions,
     messageBuffer,
-    messageBuffer.readUInt16BE(6)
+    messageBuffer.readUInt16BE(6),
+    options
   );
+
+  const nameServersOffset = messageBuffer.length - remainderAfterAnswers.length;
 
   const [
     nameServers,
@@ -376,13 +388,18 @@ exports.parseDnsMessage = function parseDnsMessage(
   ] = exports.parseDnsMessageResourceRecords(
     remainderAfterAnswers,
     messageBuffer,
-    messageBuffer.readUInt16BE(8)
+    messageBuffer.readUInt16BE(8),
+    options
   );
+
+  const additionalRecordsOffset =
+    messageBuffer.length - remainderAfterNameServers.length;
 
   const [additionalRecords] = exports.parseDnsMessageResourceRecords(
     remainderAfterNameServers,
     messageBuffer,
-    messageBuffer.readUInt16BE(10)
+    messageBuffer.readUInt16BE(10),
+    options
   );
 
   return {
@@ -391,6 +408,14 @@ exports.parseDnsMessage = function parseDnsMessage(
     answers,
     nameServers,
     additionalRecords,
+    ...(options.includeOffsets
+      ? {
+          questionsOffset,
+          answersOffset,
+          nameServersOffset,
+          additionalRecordsOffset,
+        }
+      : null),
   };
 };
 
@@ -439,7 +464,11 @@ exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
    * any name-pointers.
    * @type {Buffer}
    */
-  messageBuffer
+  messageBuffer,
+  /**
+   * @type {{ includeOffsets?: boolean }}
+   */
+  options
 ) {
   const expectedQuestionCount = messageBuffer.readUInt16BE(4);
   /** @type {Array<DnsQuestion>} */
@@ -452,6 +481,11 @@ exports.parseDnsMessageQuestions = function parseDnsMessageQuestions(
       name: [],
       type: exports.DnsResourceRecordType.A,
       class: exports.DnsResourceRecordClass.IN,
+      ...(options.includeOffsets
+        ? {
+            offset: messageBuffer.length - remainderAfterQuestions.length,
+          }
+        : null),
     };
 
     const nameResults = exports.readName(
@@ -494,13 +528,18 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
    * Expected record count for this section.
    * @type {number}
    */
-  expectedRecordCount
+  expectedRecordCount,
+  /**
+   * @type {{ includeOffsets?: boolean }}
+   */
+  options
 ) {
   /** @type {Array<DnsResourceRecord>} */
   const resourceRecords = [];
   let remainderAfterSection = remainderAfterPreviousSection;
 
   while (resourceRecords.length < expectedRecordCount) {
+    const offset = messageBuffer.length - remainderAfterSection.length;
     const nameResults = exports.readName(remainderAfterSection, messageBuffer);
     const recordName = nameResults[0];
     remainderAfterSection = nameResults[1];
@@ -511,6 +550,8 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
     const recordDataLength = remainderAfterSection.readUInt16BE(8);
     remainderAfterSection = remainderAfterSection.slice(10);
 
+    const recordDataOffset =
+      messageBuffer.length - remainderAfterSection.length;
     const recordData = remainderAfterSection.slice(0, recordDataLength);
     remainderAfterSection = remainderAfterSection.slice(recordDataLength);
 
@@ -522,6 +563,12 @@ exports.parseDnsMessageResourceRecords = function parseDnsMessageResourceRecords
           class: recordClass,
           ttl: recordTTL,
           dataRaw: recordData,
+          ...(options.includeOffsets
+            ? {
+                offset,
+                recordDataOffset,
+              }
+            : null),
         },
         messageBuffer
       )
